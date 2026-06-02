@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta
+      name="description"
+      content="Realtime drunk vision camera simulation optimized for iPhone Safari."
+    />
+    <title>Drunk Vision</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <video
+        id="camera"
+        class="camera-video"
+        autoplay
+        muted
+        playsinline
+        webkit-playsinline
+        aria-hidden="true"
+      ></video>
+
+      <canvas id="drunk-canvas" class="drunk-canvas"></canvas>
+
+      <div class="overlay">
+        <button id="controls-toggle" class="controls-toggle" type="button" aria-expanded="true">
+          Tune
+        </button>
+
+        <div class="controls-card">
+          <button id="start-button" class="start-button" type="button">
+            Start Camera
+          </button>
+
+          <button
+            id="vr-toggle"
+            class="mode-button"
+            type="button"
+            aria-pressed="true"
+          >
+            VR Split: On
+          </button>
+
+          <label class="slider-wrap" for="intensity-slider">
+            <span class="slider-label">Sober</span>
+            <input
+              id="intensity-slider"
+              class="intensity-slider"
+              type="range"
+              min="0"
+              max="100"
+              value="58"
+              step="1"
+            />
+            <span class="slider-label">Drunk</span>
+          </label>
+
+          <p class="status-text" id="status-badge">Tap start to enable the rear camera</p>
+        </div>
+      </div>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
