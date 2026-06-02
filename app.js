@@ -32,8 +32,22 @@
     return canvas.getContext("2d", options) || canvas.getContext("2d");
   }
 
+  function clamp01(value) {
+    return Math.min(1, Math.max(0, value));
+  }
+
+  function lerp(start, end, amount) {
+    return start + ((end - start) * amount);
+  }
+
+  function getEffectLevel(intensity) {
+    return Math.pow(clamp01(intensity), 1.65);
+  }
+
   function getSway(timeSeconds, intensity, motionAmount) {
-    const base = 0.62 + (intensity * 1.75) + (motionAmount * 0.75);
+    const base =
+      lerp(0.05, 2.37, intensity) +
+      (motionAmount * lerp(0.1, 0.75, intensity));
 
     return {
       x:
@@ -48,7 +62,7 @@
   }
 
   function getWobbleJitter(timeSeconds, intensity) {
-    const amount = 0.6 + (intensity * 1.45);
+    const amount = lerp(0.05, 2.05, intensity);
 
     return {
       x:
@@ -66,8 +80,8 @@
     };
   }
 
-  function getPinchAmount(timeSeconds) {
-    return Math.sin((timeSeconds / 30) * Math.PI) * 0.2;
+  function getPinchAmount(timeSeconds, intensity) {
+    return Math.sin((timeSeconds / 30) * Math.PI) * lerp(0.015, 0.2, intensity);
   }
 
   class MotionEstimator {
@@ -139,7 +153,7 @@
           depth: false,
           powerPreference: "high-performance",
           premultipliedAlpha: false,
-          preserveDrawingBuffer: false,
+          preserveDrawingBuffer: true,
           stencil: false,
         }) ||
         canvas.getContext("experimental-webgl", {
@@ -147,7 +161,7 @@
           antialias: false,
           depth: false,
           premultipliedAlpha: false,
-          preserveDrawingBuffer: false,
+          preserveDrawingBuffer: true,
           stencil: false,
         });
 
@@ -275,19 +289,20 @@
           vec2 coveredUv = coverUv(v_uv + sway);
           vec2 centered = coveredUv * 2.0 - 1.0;
           float edge = edgeMask(centered);
+          float ghostStrength = 0.05 + u_intensity * 0.95;
 
-          float distortion = 0.024 + u_intensity * 0.065;
-          float wobble = 0.0038 + u_intensity * 0.0105;
+          float distortion = 0.003 + u_intensity * 0.086;
+          float wobble = 0.0004 + u_intensity * 0.0139;
           float focusPulse = 0.35 + 0.35 * sin(u_time * 1.6);
-          float focusBlur = (0.04 + u_intensity * 0.24) * focusPulse;
-          float motionBlur = min(0.54, u_motion * (0.24 + u_intensity * 0.4));
-          float haze = 0.026 + u_intensity * 0.055;
+          float focusBlur = (0.002 + u_intensity * 0.278) * focusPulse;
+          float motionBlur = min(0.54, u_motion * (0.02 + u_intensity * 0.62));
+          float haze = 0.002 + u_intensity * 0.079;
 
           vec2 pinchedUv = pinchWarp(coveredUv, u_pinch);
           vec2 uv = lensWarp(pinchedUv, distortion, wobble);
           vec2 drift = vec2(
-            sin(u_time * 0.82) * (0.002 + u_intensity * 0.004),
-            cos(u_time * 0.67) * (0.0012 + u_intensity * 0.003)
+            sin(u_time * 0.82) * (0.0002 + u_intensity * 0.0058),
+            cos(u_time * 0.67) * (0.0001 + u_intensity * 0.0041)
           );
           vec2 echoDrift = drift + (u_sway * 0.75);
           float ghostRot0 = 0.014 + sin(u_time * 0.73) * 0.005;
@@ -314,17 +329,17 @@
           );
 
           vec3 color = current;
-          color += ghost0 * (0.10 * (0.8 + u_intensity * 0.12));
-          color += ghost1 * (0.16 * (0.9 + u_intensity * 0.12));
-          color += ghost2 * (0.24 * (1.02 + u_intensity * 0.14));
-          color += ghost3 * (0.52 * (1.08 + u_intensity * 0.16));
+          color += ghost0 * (0.10 * (0.8 + u_intensity * 0.12) * ghostStrength);
+          color += ghost1 * (0.16 * (0.9 + u_intensity * 0.12) * ghostStrength);
+          color += ghost2 * (0.24 * (1.02 + u_intensity * 0.14) * ghostStrength);
+          color += ghost3 * (0.52 * (1.08 + u_intensity * 0.16) * ghostStrength);
 
-          vec3 bloom = max(current - vec3(0.48 - haze), 0.0) * (0.34 + u_intensity * 0.18);
+          vec3 bloom = max(current - vec3(0.48 - haze), 0.0) * (0.04 + u_intensity * 0.48);
           color += bloom;
 
           float luma = dot(color, vec3(0.299, 0.587, 0.114));
-          color = mix(color, vec3(luma), 0.04 + (u_intensity * 0.05));
-          color = mix(color, color + vec3(haze, haze * 0.82, haze * 0.68), 0.56);
+          color = mix(color, vec3(luma), 0.005 + (u_intensity * 0.085));
+          color = mix(color, color + vec3(haze, haze * 0.82, haze * 0.68), 0.08 + (u_intensity * 0.48));
           color *= mix(0.92, 1.0, smoothstep(1.12, 0.22, length(centered)));
           color *= 1.0 + (edge * 0.02);
 
@@ -756,14 +771,14 @@
     drawBloom(source, intensity, blurRadius) {
       this.ctx.save();
       this.ctx.globalCompositeOperation = "screen";
-      this.ctx.globalAlpha = 0.16 + intensity * 0.16;
+      this.ctx.globalAlpha = 0.02 + intensity * 0.3;
       this.ctx.filter = `blur(${blurRadius.toFixed(2)}px) brightness(${(1.16 + intensity * 0.18).toFixed(3)})`;
       this.ctx.drawImage(source, 0, 0, this.renderWidth, this.renderHeight);
       this.ctx.restore();
     }
 
     drawEdgeFringe(source, intensity) {
-      const amount = 1.8 + intensity * 4.8;
+      const amount = 0.2 + intensity * 6.4;
       const centerX = this.renderWidth * 0.5;
       const centerY = this.renderHeight * 0.5;
       const radius = Math.max(this.renderWidth, this.renderHeight) * 0.72;
@@ -772,7 +787,7 @@
 
       this.ctx.save();
       this.ctx.globalCompositeOperation = "screen";
-      this.ctx.globalAlpha = 0.12 + intensity * 0.08;
+      this.ctx.globalAlpha = 0.01 + intensity * 0.19;
       this.ctx.drawImage(source, -amount, 0, this.renderWidth, this.renderHeight);
       warmGlow.addColorStop(0, "rgba(255, 92, 72, 0)");
       warmGlow.addColorStop(0.58, "rgba(255, 92, 72, 0)");
@@ -780,7 +795,7 @@
       this.ctx.fillStyle = warmGlow;
       this.ctx.fillRect(0, 0, this.renderWidth, this.renderHeight);
 
-      this.ctx.globalAlpha = 0.09 + intensity * 0.065;
+      this.ctx.globalAlpha = 0.01 + intensity * 0.145;
       this.ctx.drawImage(source, amount, amount * 0.4, this.renderWidth, this.renderHeight);
       coolGlow.addColorStop(0, "rgba(92, 126, 255, 0)");
       coolGlow.addColorStop(0.54, "rgba(92, 126, 255, 0)");
@@ -793,11 +808,11 @@
     drawDistortionOverlay(source, timeSeconds, intensity, motionAmount) {
       const strips = 14;
       const sliceHeight = this.renderHeight / strips;
-      const amplitude = 1.8 + intensity * 4.6 + motionAmount * 1.9;
+      const amplitude = 0.12 + intensity * 6.28 + motionAmount * (0.2 + intensity * 1.7);
 
       this.ctx.save();
       this.ctx.globalCompositeOperation = "screen";
-      this.ctx.globalAlpha = 0.16 + intensity * 0.11;
+      this.ctx.globalAlpha = 0.015 + intensity * 0.255;
 
       for (let index = 0; index < strips; index += 1) {
         const sy = index * sliceHeight;
@@ -835,21 +850,28 @@
 
       const sway = getSway(timeSeconds, intensity, motionAmount);
       const jitter = getWobbleJitter(timeSeconds, intensity);
-      const pinchAmount = getPinchAmount(timeSeconds);
+      const pinchAmount = getPinchAmount(timeSeconds, intensity);
+      const ghostStrength = 0.04 + intensity * 0.96;
+      const blurStrength = 0.03 + intensity * 0.97;
       const primaryFrame = this.applyPinchWarp(this.lagFrame, pinchAmount);
       const swayX = sway.x * (3.1 + intensity * 1.6);
       const swayY = sway.y * (2.6 + intensity * 1.35);
-      const driftX = swayX + jitter.x + (Math.sin(timeSeconds * 0.82) * (5.8 + intensity * 13.5));
-      const driftY = swayY + jitter.y + (Math.cos(timeSeconds * 0.67) * (3.4 + intensity * 8.8));
+      const driftX = swayX + jitter.x + (Math.sin(timeSeconds * 0.82) * (0.2 + intensity * 19.1));
+      const driftY = swayY + jitter.y + (Math.cos(timeSeconds * 0.67) * (0.15 + intensity * 12.05));
       const focusPulse = 0.35 + 0.35 * Math.sin(timeSeconds * 1.6);
-      const blurAmount = (1.8 + intensity * 3.3) * (0.65 + focusPulse + motionAmount * 1.55);
-      const dreamyBlur = 1.4 + (focusPulse * 1.9) + (intensity * 2.05);
+      const blurAmount =
+        (0.08 + intensity * 5.02) *
+        (0.35 + (focusPulse * (0.25 + intensity * 0.75)) + motionAmount * (0.08 + intensity * 1.47));
+      const dreamyBlur =
+        lerp(0.18, 1.4, intensity) +
+        (focusPulse * lerp(0.25, 1.9, intensity)) +
+        (intensity * 2.05);
       const dirX = Math.sin(timeSeconds * 0.92) * 0.75 + motionAmount * 1.15;
       const dirY = Math.cos(timeSeconds * 0.63) * 0.45 + Math.sin(timeSeconds * 0.41) * 0.6;
       const magnitude = Math.hypot(dirX, dirY) || 1;
       const normX = dirX / magnitude;
       const normY = dirY / magnitude;
-      const swayScale = 1.018 + (intensity * 0.034);
+      const swayScale = 1.001 + (intensity * 0.051);
       const baseRotation = jitter.rotation;
 
       this.ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -863,10 +885,13 @@
         const ghost = this.ghostFrames[
           (this.ghostIndex - index - 1 + MAX_GHOST_FRAMES) % MAX_GHOST_FRAMES
         ];
-        const weight = GHOST_WEIGHTS[index] || 0.08;
+        const weight = (GHOST_WEIGHTS[index] || 0.08) * ghostStrength;
         const offsetFactor = 1.05 + (index * 0.9);
         const rotation = baseRotation + ((index + 1) * 0.018 * (0.85 + intensity));
-        const layerBlur = dreamyBlur + (index * 1.05) + (motionAmount * 2.1);
+        const layerBlur =
+          (dreamyBlur * ghostStrength) +
+          (index * (0.08 + intensity * 0.97)) +
+          (motionAmount * (0.2 + intensity * 1.9));
 
         this.drawLayer(ghost.canvas, {
           alpha: weight,
@@ -889,19 +914,19 @@
         scaleY: swayScale,
         rotation: baseRotation * 0.95,
         blendMode: "source-over",
-        blur: dreamyBlur * 0.58,
+        blur: dreamyBlur * (0.08 + intensity * 0.5),
         brightness: 1.02,
       });
 
       this.drawLayer(this.currentFrame, {
-        alpha: 0.18,
+        alpha: 0.03 + intensity * 0.15,
         offsetX: swayX * 0.22,
         offsetY: swayY * 0.22,
         scaleX: 1.002,
         scaleY: 1.002,
         rotation: baseRotation * 0.28,
         blendMode: "screen",
-        blur: dreamyBlur * 0.15,
+        blur: dreamyBlur * (0.02 + intensity * 0.13),
         brightness: 1.04,
       });
 
@@ -911,14 +936,14 @@
       for (let index = 0; index < blurOffsets.length; index += 1) {
         const shift = blurOffsets[index] * blurAmount;
         this.drawLayer(primaryFrame, {
-          alpha: blurAlphas[index],
+          alpha: blurAlphas[index] * blurStrength,
           offsetX: swayX + (normX * shift) + (Math.sin(timeSeconds * 0.8) * intensity * 2),
           offsetY: swayY + (normY * shift) + (Math.cos(timeSeconds * 0.66) * intensity * 1.4),
           scaleX: swayScale,
           scaleY: swayScale,
           rotation: baseRotation * (0.95 + index * 0.11),
           blendMode: "screen",
-          blur: dreamyBlur + Math.abs(shift) * 0.32,
+          blur: (dreamyBlur * blurStrength) + Math.abs(shift) * (0.04 + intensity * 0.28),
           brightness: 1.05 + (blurAlphas[index] * 0.12),
         });
       }
@@ -957,6 +982,7 @@
       this.running = false;
       this.vrMode = true;
       this.flipMode = true;
+      this.hasRenderedFrame = false;
       this.controlsVisible = true;
       this.controlsHideTimer = 0;
       this.startTime = performance.now();
@@ -1172,14 +1198,15 @@
         this.video.srcObject = this.stream;
         await this.video.play();
         await this.waitForVideoMetadata();
+        await this.waitForVideoFrame();
 
         this.ensureRenderer();
         this.handleResize();
         this.running = true;
+        this.hasRenderedFrame = false;
         this.startTime = performance.now();
         this.startButton.textContent = "Camera Live";
-        this.updateStatus(this.getCameraActiveMessage());
-        this.scheduleControlsHide(900);
+        this.updateStatus("Camera ready - waiting for first frame");
         this.render(performance.now());
       } catch (error) {
         console.error(error);
@@ -1195,10 +1222,12 @@
       }
 
       try {
-        this.renderer = new GLRenderer(this.renderCanvas, this.video);
-      } catch (glError) {
-        console.warn("WebGL renderer unavailable. Falling back to Canvas2D.", glError);
+        // Offscreen WebGL-to-2D compositing is unreliable on mobile Safari,
+        // so prefer the Canvas renderer for the VR split display pipeline.
         this.renderer = new CanvasRenderer(this.renderCanvas, this.video);
+      } catch (canvasError) {
+        console.warn("Canvas2D renderer unavailable. Falling back to WebGL.", canvasError);
+        this.renderer = new GLRenderer(this.renderCanvas, this.video);
       }
     }
 
@@ -1214,6 +1243,47 @@
         };
 
         this.video.addEventListener("loadedmetadata", onLoaded);
+      });
+    }
+
+    waitForVideoFrame() {
+      if (this.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+        return Promise.resolve();
+      }
+
+      return new Promise((resolve, reject) => {
+        let settled = false;
+
+        const cleanup = () => {
+          window.clearTimeout(timeoutId);
+          this.video.removeEventListener("loadeddata", onReady);
+          this.video.removeEventListener("canplay", onReady);
+          this.video.removeEventListener("playing", onReady);
+        };
+
+        const onReady = () => {
+          if (settled || this.video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+            return;
+          }
+
+          settled = true;
+          cleanup();
+          resolve();
+        };
+
+        const timeoutId = window.setTimeout(() => {
+          if (settled) {
+            return;
+          }
+
+          settled = true;
+          cleanup();
+          reject(new Error("Camera stream started, but no video frames arrived."));
+        }, 5000);
+
+        this.video.addEventListener("loadeddata", onReady);
+        this.video.addEventListener("canplay", onReady);
+        this.video.addEventListener("playing", onReady);
       });
     }
 
@@ -1277,6 +1347,7 @@
       }
 
       this.startTime = performance.now();
+      this.hasRenderedFrame = false;
       this.updateStatus(this.getCameraActiveMessage());
       this.scheduleControlsHide(1200);
       this.render(performance.now());
@@ -1335,13 +1406,21 @@
       }
 
       if (this.video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        this.showControls();
+        this.updateStatus("Waiting for camera frames");
         this.rafId = requestAnimationFrame(this.boundRender);
         return;
       }
 
+      if (!this.hasRenderedFrame) {
+        this.hasRenderedFrame = true;
+        this.updateStatus(this.getCameraActiveMessage());
+        this.scheduleControlsHide(900);
+      }
+
       const elapsed = (now - this.startTime) / 1000;
       const motionAmount = this.motionEstimator.sample(this.video);
-      this.renderer.render(elapsed, this.intensity, motionAmount, now);
+      this.renderer.render(elapsed, getEffectLevel(this.intensity), motionAmount, now);
       this.compositeFrame();
       this.rafId = requestAnimationFrame(this.boundRender);
     }
