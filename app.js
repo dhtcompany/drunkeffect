@@ -1268,13 +1268,18 @@
 
       await this.requestFullscreenMode();
 
+      const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 1280;
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 720;
+      const targetAspectRatio = Math.max(0.5, Math.min(2, viewportWidth / Math.max(viewportHeight, 1)));
+
       try {
         this.stream = await navigator.mediaDevices.getUserMedia({
           audio: false,
           video: {
             facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
+            aspectRatio: { ideal: targetAspectRatio },
+            width: { ideal: Math.max(viewportWidth * 1.5, 960) },
+            height: { ideal: Math.max(viewportHeight * 1.5, 720) },
           },
         });
 
