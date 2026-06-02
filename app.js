@@ -970,6 +970,7 @@
       this.startButton = document.getElementById("start-button");
       this.vrToggle = document.getElementById("vr-toggle");
       this.flipToggle = document.getElementById("flip-toggle");
+      this.fullscreenToggle = document.getElementById("fullscreen-toggle");
       this.intensitySlider = document.getElementById("intensity-slider");
       this.statusBadge = document.getElementById("status-badge");
       this.renderCanvas = document.createElement("canvas");
@@ -991,6 +992,7 @@
       this.boundRender = this.render.bind(this);
       this.boundResize = this.handleResize.bind(this);
       this.boundVisibility = this.handleVisibilityChange.bind(this);
+      this.boundFullscreenChange = this.handleFullscreenChange.bind(this);
 
       this.setup();
     }
@@ -1006,6 +1008,10 @@
 
       this.flipToggle.addEventListener("click", () => {
         this.toggleFlipMode();
+      });
+
+      this.fullscreenToggle.addEventListener("click", () => {
+        this.toggleFullscreen();
       });
 
       this.controlsToggle.addEventListener("click", () => {
@@ -1028,9 +1034,12 @@
       window.addEventListener("resize", this.boundResize, { passive: true });
       window.addEventListener("orientationchange", this.boundResize, { passive: true });
       document.addEventListener("visibilitychange", this.boundVisibility);
+      document.addEventListener("fullscreenchange", this.boundFullscreenChange);
+      document.addEventListener("webkitfullscreenchange", this.boundFullscreenChange);
 
       this.updateVrToggle();
       this.updateFlipToggle();
+      this.updateFullscreenToggle();
       this.drawIdleBackdrop();
     }
 
@@ -1058,6 +1067,23 @@
 
       this.flipToggle.textContent = this.flipMode ? "Rotate 180: On" : "Rotate 180: Off";
       this.flipToggle.setAttribute("aria-pressed", this.flipMode ? "true" : "false");
+    }
+
+    isFullscreenActive() {
+      return Boolean(
+        document.fullscreenElement ||
+        document.webkitFullscreenElement,
+      );
+    }
+
+    updateFullscreenToggle() {
+      if (!this.fullscreenToggle) {
+        return;
+      }
+
+      const active = this.isFullscreenActive();
+      this.fullscreenToggle.textContent = active ? "Exit Full Screen" : "Full Screen";
+      this.fullscreenToggle.setAttribute("aria-pressed", active ? "true" : "false");
     }
 
     getCameraActiveMessage() {
@@ -1095,6 +1121,61 @@
         this.drawIdleBackdrop();
       } else {
         this.updateStatus(this.getCameraActiveMessage());
+        this.scheduleControlsHide();
+      }
+    }
+
+    async requestFullscreenMode() {
+      if (this.isFullscreenActive()) {
+        return true;
+      }
+
+      const root = document.documentElement;
+
+      try {
+        if (root.requestFullscreen) {
+          await root.requestFullscreen({ navigationUI: "hide" });
+        } else if (root.webkitRequestFullscreen) {
+          root.webkitRequestFullscreen();
+        } else {
+          return false;
+        }
+
+        this.updateFullscreenToggle();
+        return true;
+      } catch (error) {
+        console.warn("Unable to enter fullscreen.", error);
+        this.updateFullscreenToggle();
+        return false;
+      }
+    }
+
+    async exitFullscreenMode() {
+      try {
+        if (document.exitFullscreen && document.fullscreenElement) {
+          await document.exitFullscreen();
+        } else if (document.webkitExitFullscreen && document.webkitFullscreenElement) {
+          document.webkitExitFullscreen();
+        }
+      } catch (error) {
+        console.warn("Unable to exit fullscreen.", error);
+      } finally {
+        this.updateFullscreenToggle();
+      }
+    }
+
+    async toggleFullscreen() {
+      if (this.isFullscreenActive()) {
+        await this.exitFullscreenMode();
+      } else {
+        const entered = await this.requestFullscreenMode();
+
+        if (!entered && !this.running) {
+          this.updateStatus("Fullscreen unavailable on this browser");
+        }
+      }
+
+      if (this.running) {
         this.scheduleControlsHide();
       }
     }
@@ -1184,6 +1265,8 @@
       this.startButton.disabled = true;
       this.startButton.textContent = "Starting…";
       this.updateStatus("Requesting camera permission");
+
+      await this.requestFullscreenMode();
 
       try {
         this.stream = await navigator.mediaDevices.getUserMedia({
@@ -1351,6 +1434,17 @@
       this.updateStatus(this.getCameraActiveMessage());
       this.scheduleControlsHide(1200);
       this.render(performance.now());
+    }
+
+    handleFullscreenChange() {
+      this.updateFullscreenToggle();
+
+      if (!this.running) {
+        return;
+      }
+
+      this.handleResize();
+      this.scheduleControlsHide(1200);
     }
 
     compositeFrame() {
