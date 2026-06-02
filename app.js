@@ -944,6 +944,7 @@
       this.controlsToggle = document.getElementById("controls-toggle");
       this.startButton = document.getElementById("start-button");
       this.vrToggle = document.getElementById("vr-toggle");
+      this.flipToggle = document.getElementById("flip-toggle");
       this.intensitySlider = document.getElementById("intensity-slider");
       this.statusBadge = document.getElementById("status-badge");
       this.renderCanvas = document.createElement("canvas");
@@ -955,6 +956,7 @@
       this.rafId = 0;
       this.running = false;
       this.vrMode = true;
+      this.flipMode = true;
       this.controlsVisible = true;
       this.controlsHideTimer = 0;
       this.startTime = performance.now();
@@ -974,6 +976,10 @@
 
       this.vrToggle.addEventListener("click", () => {
         this.toggleVrMode();
+      });
+
+      this.flipToggle.addEventListener("click", () => {
+        this.toggleFlipMode();
       });
 
       this.controlsToggle.addEventListener("click", () => {
@@ -998,6 +1004,7 @@
       document.addEventListener("visibilitychange", this.boundVisibility);
 
       this.updateVrToggle();
+      this.updateFlipToggle();
       this.drawIdleBackdrop();
     }
 
@@ -1018,6 +1025,15 @@
       this.vrToggle.setAttribute("aria-pressed", this.vrMode ? "true" : "false");
     }
 
+    updateFlipToggle() {
+      if (!this.flipToggle) {
+        return;
+      }
+
+      this.flipToggle.textContent = this.flipMode ? "Rotate 180: On" : "Rotate 180: Off";
+      this.flipToggle.setAttribute("aria-pressed", this.flipMode ? "true" : "false");
+    }
+
     getCameraActiveMessage() {
       if (!this.renderer) {
         return this.vrMode ? "Rear camera active - VR split" : "Rear camera active";
@@ -1036,6 +1052,18 @@
       this.vrMode = !this.vrMode;
       this.updateVrToggle();
       this.handleResize();
+
+      if (!this.running) {
+        this.drawIdleBackdrop();
+      } else {
+        this.updateStatus(this.getCameraActiveMessage());
+        this.scheduleControlsHide();
+      }
+    }
+
+    toggleFlipMode() {
+      this.flipMode = !this.flipMode;
+      this.updateFlipToggle();
 
       if (!this.running) {
         this.drawIdleBackdrop();
@@ -1106,16 +1134,20 @@
 
       if (this.vrMode) {
         const eyeWidth = this.canvas.width * 0.5;
-        this.displayCtx.fillStyle = gradient;
-        this.displayCtx.fillRect(0, 0, eyeWidth, this.canvas.height);
-        this.displayCtx.fillRect(eyeWidth, 0, eyeWidth, this.canvas.height);
+        this.drawDisplaySegment((ctx) => {
+          ctx.fillStyle = gradient;
+          ctx.fillRect(0, 0, eyeWidth, this.canvas.height);
+          ctx.fillRect(eyeWidth, 0, eyeWidth, this.canvas.height);
+        }, this.flipMode);
         this.displayCtx.fillStyle = "rgba(255, 255, 255, 0.08)";
         this.displayCtx.fillRect(eyeWidth - 1, 0, 2, this.canvas.height);
         return;
       }
 
-      this.displayCtx.fillStyle = gradient;
-      this.displayCtx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      this.drawDisplaySegment((ctx) => {
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      }, this.flipMode);
     }
 
     async startCamera() {
@@ -1267,14 +1299,34 @@
       if (this.vrMode) {
         const eyeWidth = Math.floor(displayWidth * 0.5);
 
-        this.displayCtx.drawImage(this.renderCanvas, 0, 0, eyeWidth, displayHeight);
-        this.displayCtx.drawImage(this.renderCanvas, eyeWidth, 0, eyeWidth, displayHeight);
+        this.drawDisplaySegment((ctx) => {
+          ctx.drawImage(this.renderCanvas, 0, 0, eyeWidth, displayHeight);
+          ctx.drawImage(this.renderCanvas, eyeWidth, 0, eyeWidth, displayHeight);
+        }, this.flipMode);
         this.displayCtx.fillStyle = "rgba(255, 255, 255, 0.08)";
         this.displayCtx.fillRect(eyeWidth - 1, 0, 2, displayHeight);
         return;
       }
 
-      this.displayCtx.drawImage(this.renderCanvas, 0, 0, displayWidth, displayHeight);
+      this.drawDisplaySegment((ctx) => {
+        ctx.drawImage(this.renderCanvas, 0, 0, displayWidth, displayHeight);
+      }, this.flipMode);
+    }
+
+    drawDisplaySegment(drawFn, shouldFlip = false) {
+      if (!this.displayCtx) {
+        return;
+      }
+
+      this.displayCtx.save();
+
+      if (shouldFlip) {
+        this.displayCtx.translate(this.canvas.width, this.canvas.height);
+        this.displayCtx.rotate(Math.PI);
+      }
+
+      drawFn(this.displayCtx);
+      this.displayCtx.restore();
     }
 
     render(now) {
